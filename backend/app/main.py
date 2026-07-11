@@ -1,23 +1,26 @@
-import logging
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
+from app.api.v1.documents import router as documents_router
 from app.core.config import settings
+from app.core.database import AsyncSessionLocal
+from app.core.logging import get_logger, setup_logging
 from app.embeddings.factory import EmbeddingProviderFactory
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger("docuflow-backend")
+# Trigger structured logging setup
+setup_logging()
+logger = get_logger("docuflow-backend")
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="An AI-powered Document Intelligence Platform API",
     version="1.0.0",
 )
+
+app.include_router(documents_router, prefix="/api/v1")
 
 # CORS configurations
 app.add_middleware(
@@ -32,10 +35,12 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event() -> None:
     """
-    Triggers on backend launch. Validates configuration and verifies that
-    the configured embedding provider loads successfully.
+    Triggers on backend launch. Validates configuration, checks DB pools
+    connectivity, and verifies that the embedding provider loads successfully.
     """
     logger.info("Verifying system configuration...")
+
+    # 1. Verify embedding provider initialization
     try:
         provider = EmbeddingProviderFactory.get_provider()
         logger.info(
@@ -43,6 +48,16 @@ async def startup_event() -> None:
         )
     except Exception as e:
         logger.critical(f"Failed to load embedding provider: {e}", exc_info=True)
+        raise e
+
+    # 2. Verify database connectivity
+    logger.info("Verifying database connection pool...")
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+        logger.info("Database connection verified successfully.")
+    except Exception as e:
+        logger.critical(f"Database connection pool check failed: {e}", exc_info=True)
         raise e
 
 
@@ -63,9 +78,19 @@ async def read_root() -> dict[str, str]:
 @app.get("/health", tags=["General"])
 async def health_check() -> dict[str, Any]:
     """
-    Basic application health checker detailing the active embedding model.
+    Detailed health check querying database connection status.
     """
     logger.info("Health check endpoint queried.")
+
+    # Check DB status
+    db_status = "connected"
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.error(f"Health check DB probe failed: {e}")
+        db_status = f"failed: {e}"
+
     try:
         provider = EmbeddingProviderFactory.get_provider()
         provider_name = provider.__class__.__name__
@@ -73,8 +98,8 @@ async def health_check() -> dict[str, Any]:
         provider_name = f"ERROR: {e}"
 
     return {
-        "status": "healthy",
-        "services": {"api": "healthy"},
+        "status": "healthy" if db_status == "connected" else "unhealthy",
+        "services": {"api": "healthy", "database": db_status},
         "embeddings": {
             "active_provider": settings.EMBEDDING_PROVIDER,
             "provider_class": provider_name,
