@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+
 from openai import AsyncOpenAI
 
 from app.embeddings.base import EmbeddingProvider
@@ -17,7 +17,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def __init__(self, api_key: str, model_name: str = "text-embedding-3-small"):
         self.api_key = api_key
         self.model_name = model_name
-        self.client: Optional[AsyncOpenAI] = None
+        self.client: AsyncOpenAI | None = None
 
     def _init_client(self) -> None:
         """

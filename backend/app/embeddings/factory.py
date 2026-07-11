@@ -34,9 +34,7 @@ class EmbeddingProviderFactory:
             cls._instance = FastEmbedProvider(model_name=settings.FASTEMBED_MODEL)
         elif provider_type == "openai":
             if not settings.OPENAI_API_KEY:
-                raise ValueError(
-                    "OPENAI_API_KEY is required for 'openai' provider."
-                )
+                raise ValueError("OPENAI_API_KEY is required for 'openai' provider.")
             cls._instance = OpenAIEmbeddingProvider(
                 api_key=settings.OPENAI_API_KEY,
                 model_name=settings.OPENAI_EMBEDDING_MODEL,
