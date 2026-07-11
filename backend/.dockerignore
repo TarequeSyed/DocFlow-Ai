@@ -1,0 +1,15 @@
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+uploads/
+.git
+.vscode
+.idea
+*.log
+tests/
+alembic/
+.env
+docker-compose.yml
