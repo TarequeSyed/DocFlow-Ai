@@ -32,51 +32,28 @@ class IntelligentChunker(BaseChunker):
         Splits document text into manageable pieces, propagating metadata.
         """
         logger.info("Executing text chunking pipeline...")
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            length_function=len,
+        )
+        split_docs = splitter.split_text(text)
+
         chunks = []
-
-        # Fallback simple split implementation (mock splitter for skeleton verification)
-        words = text.split()
-        current_chunk_words = []
-        current_length = 0
-        chunk_index = 0
-
-        for word in words:
-            current_chunk_words.append(word)
-            current_length += len(word) + 1
-            if current_length >= self.chunk_size:
-                content = " ".join(current_chunk_words)
-                chunks.append(
-                    {
-                        "content": content,
-                        "chunk_index": chunk_index,
-                        "metadata": {
-                            **metadata,
-                            "chunk_index": chunk_index,
-                            "character_length": len(content),
-                        },
-                    }
-                )
-                chunk_index += 1
-                current_chunk_words = current_chunk_words[-5:]  # basic mock overlap
-                current_length = sum(len(w) + 1 for w in current_chunk_words)
-
-        if current_chunk_words:
-            content = " ".join(current_chunk_words)
+        for i, content in enumerate(split_docs):
             chunks.append(
                 {
                     "content": content,
-                    "chunk_index": chunk_index,
+                    "chunk_index": i,
                     "metadata": {
                         **metadata,
-                        "chunk_index": chunk_index,
+                        "chunk_index": i,
                         "character_length": len(content),
                     },
                 }
             )
-
-        # TODO [Phase 4]: Replace with LangChain text splitter
-        # TODO [Future Feature]: Integrate semantic split
-        # TODO [Future Feature]: Integrate layout/table-aware split
 
         logger.info(f"Chunking completed. Generated {len(chunks)} chunks.")
         return chunks

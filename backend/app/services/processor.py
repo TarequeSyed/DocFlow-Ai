@@ -4,7 +4,10 @@ import uuid
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
-from app.models.document import Document
+from app.embeddings.factory import EmbeddingProviderFactory
+from app.models.document import Document, DocumentChunk
+from app.repositories.vector import VectorRepository
+from app.services.chunker import IntelligentChunker
 from app.services.classifier import IntelligentDocumentClassifier
 from app.services.parser import IntelligentParserOrchestrator
 
@@ -13,17 +16,20 @@ logger = logging.getLogger("docuflow-processor")
 
 class DocumentProcessor:
     """
-    Orchestrates the asynchronous background parsing and classification pipeline.
+    Background executor running text parsing, classification, chunking,
+    embedding generation, and pgvector database indexing.
     """
 
     def __init__(self) -> None:
         self.parser_orchestrator = IntelligentParserOrchestrator()
         self.classifier = IntelligentDocumentClassifier()
+        self.chunker = IntelligentChunker()
+        self.vector_repository = VectorRepository()
 
     async def process_document(self, document_id: uuid.UUID) -> None:
         """
-        Loads document by ID from database, parses the stored file,
-        runs type classification, and commits results.
+        Loads document record, parses storage bytes, runs category classification,
+        creates overlapping text chunks, embeds chunks, and saves to vector store.
         """
         logger.info(f"Background task triggered for document ID: {document_id}")
 
@@ -60,7 +66,37 @@ class DocumentProcessor:
                 }
                 category = await self.classifier.classify(extracted_text, file_metadata)
 
-                # 5. Save results and update status
+                # 5. Segment Text into Chunks
+                logger.info("Splitting text layer into chunks...")
+                chunk_metadata = {"document_id": str(document_id)}
+                chunks_data = self.chunker.split_text(extracted_text, chunk_metadata)
+
+                # 6. Generate Vector Embeddings (GPU/CPU Threadpool offloaded)
+                if chunks_data:
+                    logger.info(
+                        f"Generating embeddings for {len(chunks_data)} chunks..."
+                    )
+                    provider = EmbeddingProviderFactory.get_provider()
+                    texts = [c["content"] for c in chunks_data]
+                    embeddings = await provider.embed_documents(texts)
+
+                    # Build SQLAlchemy chunk model instances
+                    db_chunks = []
+                    for chunk, emb in zip(chunks_data, embeddings, strict=False):
+                        db_chunks.append(
+                            DocumentChunk(
+                                document_id=document_id,
+                                chunk_index=chunk["chunk_index"],
+                                content=chunk["content"],
+                                embedding=emb,
+                            )
+                        )
+
+                    # Bulk insert chunks + vectors to PostgreSQL pgvector tables
+                    logger.info("Bulk-saving vector chunks to database...")
+                    await self.vector_repository.bulk_insert_chunks(session, db_chunks)
+
+                # 7. Update parent document state
                 db_doc.full_text = extracted_text
                 db_doc.category = category
                 db_doc.status = "PARSED"
@@ -68,7 +104,7 @@ class DocumentProcessor:
 
                 logger.info(
                     f"Document processing completed for {document_id}. "
-                    f"Classified as: {category}."
+                    f"Classified as: {category}. Indexed {len(chunks_data)} chunks."
                 )
 
             except Exception as e:
