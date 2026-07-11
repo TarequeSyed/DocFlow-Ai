@@ -12,6 +12,7 @@ pgvector>=0.2.5
 
 # Document Ingestion
 python-multipart>=0.0.9
+pymupdf>=1.24.5
 
 # AI & Embedding Providers
 fastembed>=0.8.0
