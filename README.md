@@ -27,9 +27,17 @@ DocuFlow AI is built using **Clean Architecture** and **SOLID Principles** to en
           v                                 v                                 v
 +-------------------+             +-------------------+             +-------------------+
 |  Document Parser  |             |  Vector Pipeline  |             |   LLM Extractor   |
-| (PyMuPDF / OCR)   |             | (Sentence-Transf) |             |  (Structured JSON)|
+| (PyMuPDF / OCR)   |             | (Embedding Prov.) |             |  (Structured JSON)|
 +-------------------+             +---------+---------+             +-------------------+
                                             |
+                              ┌─────────────┴─────────────┐
+                              ▼                           ▼
+                      +---------------+           +---------------+
+                      |   FastEmbed   |           |  OpenAI Embed |
+                      |  (Local CPU)  |           | (Cloud/384-d) |
+                      +-------+-------+           +-------+-------+
+                              |                           |
+                              └─────────────┬─────────────┘
                                             v
                                   +-------------------+
                                   |    PostgreSQL     |
@@ -44,10 +52,10 @@ DocuFlow AI is built using **Clean Architecture** and **SOLID Principles** to en
 | Component | Technologies |
 | :--- | :--- |
 | **Backend** | Python 3.12+, FastAPI, SQLAlchemy 2.x, Alembic, Pydantic v2 |
-| **AI / Vector** | pgvector, Sentence Transformers, Hugging Face, LangChain |
+| **AI / Vector** | pgvector, FastEmbed, OpenAI Embeddings, LangChain |
 | **Frontend** | Next.js, TypeScript, TailwindCSS, shadcn/ui, React Query, Zod, Recharts |
 | **Database** | PostgreSQL |
-| **DevOps & QA** | Docker, Docker Compose, Pytest, Ruff, Black, isort, ESLint, Prettier |
+| **DevOps & QA** | Docker, Docker Compose, Pytest, Ruff, Black, ESLint, Prettier |
 
 ---
 
@@ -93,10 +101,10 @@ DocFlow AI/
 ## 🗺️ Project Roadmap
 
 - [x] **Phase 0: Project Planning** - Architecture, database schema, API specification, Docker roadmap.
-- [ ] **Phase 1: Repo Initialization** - Multi-container environment setup (Compose), styling, boilerplate setup.
+- [x] **Phase 1: Repo Initialization** - Multi-container environment setup (Compose), styling, boilerplate setup, and Embedding Provider refactoring.
 - [ ] **Phase 2: Backend Foundation** - Config, Logging, SQLAlchemy 2.0 connection, Alembic setup, health routes.
 - [ ] **Phase 3: Parsing Pipeline** - PDF/image ingestion, text extracting, OCR framework design.
-- [ ] **Phase 4: Vector Store** - Vector database initialization, chunking strategy, Sentence-Transformers embed pipeline.
+- [ ] **Phase 4: Vector Store** - Vector database initialization, chunking strategy, and EmbeddingProvider vector pipeline.
 - [ ] **Phase 5: Structured AI Extraction** - Prompt management, structured JSON schema mapping, validation & retry.
 - [ ] **Phase 6: REST API Development** - Extraction validation, search endpoints, files querying.
 - [ ] **Phase 7: Frontend Interface** - Dashboards, live uploading, extracting viewer, interactive vector search.
@@ -121,6 +129,27 @@ The application will launch the following services:
 - **Backend (FastAPI)**: `http://localhost:8000`
 - **Frontend (Next.js)**: `http://localhost:3000`
 - **Database (PostgreSQL + pgvector)**: `localhost:5432`
+
+---
+
+## 🔌 Embedding Provider Configuration
+
+DocuFlow AI decouples vector ingestion logic using the **Provider Pattern**. You can switch the embedding backend solely via environment settings:
+
+```ini
+# To use lightweight local CPU embeddings (ONNX-powered, zero API costs)
+EMBEDDING_PROVIDER=fastembed
+FASTEMBED_MODEL=BAAI/bge-small-en-v1.5
+
+# To use OpenAI cloud API (higher accuracy, requires network)
+EMBEDDING_PROVIDER=openai
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_API_KEY=your-openai-api-key-here
+```
+
+### Performance & Vector Dimensions Tradeoffs
+- **FastEmbed (Default)**: Generates 384-dimension embeddings. Highly optimized for speed and low CPU footprints. Zero operational costs.
+- **OpenAI**: The `text-embedding-3-small` model normally outputs 1536 dimensions. We utilize **Matryoshka Representation Learning** to truncate outputs directly to **384 dimensions** at the API-side. This allows seamless toggling between FastEmbed and OpenAI without altering PostgreSQL `pgvector` schemas.
 
 ---
 
