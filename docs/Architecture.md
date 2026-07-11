@@ -78,7 +78,7 @@ sequenceDiagram
     Parser->>DB: Save Extracted Full Text & Update Status (PARSED)
     Parser->>Embed: Pass Full Text for Chunking
     Embed->>Embed: Apply Semantic/Recursive Character Chunking
-    Embed->>Embed: Generate Embeddings (Sentence-Transformers)
+    Embed->>Embed: Generate Embeddings (EmbeddingProvider Interface)
     Embed->>VecDB: Save Chunks + 384-dim Embeddings
     VecDB-->>API: Success
     API-->>User: HTTP 201 Created (Document ID, Status: READY)
@@ -144,3 +144,44 @@ To prevent the application from degrading into spaghetti code over time, we enfo
 - Inject dependencies using FastAPI's `Depends` system.
 - Never instantiate database sessions, repositories, or services globally.
 - E.g., a router depends on a service interface, which in turn depends on a repository interface.
+
+---
+
+## 4. Embedding Provider Pattern
+
+To ensure we can scale from local, lightweight testing environments to massive production clouds, the vector generation step is abstracted under the **Provider Pattern**.
+
+```
+                           +-------------------+
+                           | Ingestion Pipeline|
+                           +---------+---------+
+                                     |
+                         queries/    | (injects interface)
+                         chunks      v
+                           +-------------------+
+                           | EmbeddingProvider |
+                           |    (Abstract)     |
+                           +----+---------+----+
+                                |         |
+                     +----------+         +----------+
+                     |                               |
+                     v                               v
+           +-------------------+           +-------------------+
+           | FastEmbedProvider |           | OpenAIProvider    |
+           |   (Local CPU)     |           | (Cloud API / 384) |
+           +-------------------+           +-------------------+
+```
+
+### Performance & Configuration Tradeoffs
+
+1. **FastEmbed (Local, Default)**:
+   - Uses BGE-small-en-v1.5 (384 dimensions).
+   - Runs locally on CPU via ONNX Runtime (no PyTorch, no CUDA required).
+   - Zero API costs, runs offline.
+   - Synchronous CPU-bound work is offloaded to Python's `ThreadPoolExecutor` to avoid blocking the async event loop.
+2. **OpenAI (Cloud)**:
+   - Uses `text-embedding-3-small` model.
+   - Requires API key and network connection.
+   - Employs **Matryoshka Representation Learning** to truncate vectors from 1536 down to **384 dimensions** directly at the API side.
+   - Matches our local database vector column sizes without requiring migrations or column redefinitions.
+

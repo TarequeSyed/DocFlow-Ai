@@ -32,6 +32,11 @@ POSTGRES_HOST=postgres
 POSTGRES_PORT=5432
 DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
 
+# Embedding Providers Config
+EMBEDDING_PROVIDER=fastembed # 'fastembed' or 'openai'
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+FASTEMBED_MODEL=BAAI/bge-small-en-v1.5
+
 # LLM Extractor Credentials
 OPENAI_API_KEY=your-openai-api-key-here
 LLM_MODEL_NAME=gpt-4o-mini
@@ -99,17 +104,17 @@ docker compose down -v
 
 ## 5. Testing Guidelines
 
-Never push code without completing testing verification.
+Never push code without completing testing verification. Development packages are defined in `backend/requirements-dev.txt`.
 
 ### Backend Testing (Pytest)
 We write asynchronous tests using `pytest` and `pytest-asyncio`. 
 
 ```bash
 # Execute test suite
-docker compose exec backend pytest
+docker compose run --entrypoint pytest backend
 
 # Execute tests with coverage check
-docker compose exec backend pytest --cov=app --cov-report=term-missing
+docker compose run --entrypoint "pytest --cov=app --cov-report=term-missing" backend
 ```
 
 ### Mocking Guidelines
