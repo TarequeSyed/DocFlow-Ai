@@ -10,6 +10,5 @@ uploads/
 .idea
 *.log
 tests/
-alembic/
 .env
 docker-compose.yml
