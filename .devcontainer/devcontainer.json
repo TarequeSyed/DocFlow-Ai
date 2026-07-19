@@ -1,0 +1,62 @@
+{
+  "name": "DocuFlow AI Codespace",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/node:20": {
+      "version": "20"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "enableNonRootDocker": "true"
+    }
+  },
+  "workspaceFolder": "/workspaces/DocFlow-Ai",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.linting.enabled": true,
+        "python.analysis.extraPaths": [
+          "${containerWorkspaceFolder}/backend"
+        ],
+        "terminal.integrated.cwd": "${containerWorkspaceFolder}",
+        "eslint.workingDirectories": [
+          "./frontend"
+        ]
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-docker",
+        "github.copilot",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  },
+  "forwardPorts": [
+    3000,
+    8000,
+    5432
+  ],
+  "portsAttributes": {
+    "3000": {
+      "label": "Frontend (Next.js)",
+      "onAutoForward": "openPreview"
+    },
+    "8000": {
+      "label": "Backend (FastAPI)",
+      "onAutoForward": "silent"
+    },
+    "5432": {
+      "label": "PostgreSQL",
+      "onAutoForward": "silent"
+    }
+  },
+  "updateContentCommand": "if [ ! -f .env ]; then cp .env.example .env; fi && npm --prefix frontend install && pip install --no-cache-dir -r backend/requirements.txt",
+  "remoteUser": "vscode"
+}
