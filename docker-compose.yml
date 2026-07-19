@@ -1,0 +1,99 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: docuflow-db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-docuflow_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - docuflow-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: docuflow-backend
+    restart: unless-stopped
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - PROJECT_NAME=${PROJECT_NAME:-DocuFlow AI}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres_secure_password}
+      - POSTGRES_DB=${POSTGRES_DB:-docuflow_db}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:postgres_secure_password@postgres:5432/docuflow_db}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - LLM_MODEL_NAME=${LLM_MODEL_NAME:-gpt-4o-mini}
+      - UPLOAD_DIR=${UPLOAD_DIR:-/app/uploads}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - docuflow-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: docuflow-frontend
+    restart: unless-stopped
+    # Start a zero-dependency port forwarder in Node.js mapping localhost:8000 inside the frontend container to backend:8000.
+    # This keeps frontend page.tsx and next.config.ts completely unmodified and working.
+    command: >
+      sh -c "node -e \"
+      const net = require('net');
+      net.createServer(s => {
+        const c = net.createConnection(8000, 'backend');
+        s.pipe(c).pipe(s);
+        s.on('error', () => {});
+        c.on('error', () => {});
+      }).listen(8000, '127.0.0.1');
+      console.log('Port forwarder localhost:8000 -> backend:8000 started');
+      \" & npm run dev"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - docuflow-network
+
+networks:
+  docuflow-network:
+    name: docuflow-network
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: postgres_data
