@@ -2,10 +2,10 @@
   "name": "DocuFlow AI Codespace",
   "build": {
     "dockerfile": "Dockerfile",
-    "context": "."
+    "context": ".."
   },
   "features": {
-    "ghcr.io/devcontainers/features/node:20": {
+    "ghcr.io/devcontainers/features/node:1": {
       "version": "20"
     },
     "ghcr.io/devcontainers/features/docker-in-docker:2": {
