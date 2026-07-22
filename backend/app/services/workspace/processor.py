@@ -4,12 +4,13 @@ import uuid
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
-from app.embeddings.factory import EmbeddingProviderFactory
 from app.models.document import Document, DocumentChunk
+from app.providers.embeddings.factory import EmbeddingProviderFactory
 from app.repositories.vector import VectorRepository
-from app.services.chunker import IntelligentChunker
-from app.services.classifier import IntelligentDocumentClassifier
-from app.services.parser import IntelligentParserOrchestrator
+from app.services.graph.graph_service import GraphService
+from app.services.parsing.parser import IntelligentParserOrchestrator
+from app.services.retrieval.chunker import IntelligentChunker
+from app.services.workspace.classifier import IntelligentDocumentClassifier
 
 logger = logging.getLogger("docuflow-processor")
 
@@ -25,6 +26,7 @@ class DocumentProcessor:
         self.classifier = IntelligentDocumentClassifier()
         self.chunker = IntelligentChunker()
         self.vector_repository = VectorRepository()
+        self.graph_service = GraphService()
 
     async def process_document(self, document_id: uuid.UUID) -> None:
         """
@@ -54,9 +56,10 @@ class DocumentProcessor:
                     file_content = f.read()
 
                 # 3. Parse Document Content
-                extracted_text = await self.parser_orchestrator.parse_document(
+                pages = await self.parser_orchestrator.parse_document_pages(
                     file_content, db_doc.mime_type
                 )
+                extracted_text = "\n".join(pages).strip()
 
                 # 4. Classify Document Type
                 file_metadata = {
@@ -66,10 +69,26 @@ class DocumentProcessor:
                 }
                 category = await self.classifier.classify(extracted_text, file_metadata)
 
-                # 5. Segment Text into Chunks
-                logger.info("Splitting text layer into chunks...")
-                chunk_metadata = {"document_id": str(document_id)}
-                chunks_data = self.chunker.split_text(extracted_text, chunk_metadata)
+                # 5. Segment Text into Chunks page-by-page
+                logger.info("Splitting text layer into chunks page-by-page...")
+                chunks_data = []
+                global_chunk_idx = 0
+                for page_idx, page_text in enumerate(pages):
+                    page_number = page_idx + 1
+                    if not page_text.strip():
+                        continue
+
+                    page_metadata = {
+                        "document_id": str(document_id),
+                        "page_number": page_number,
+                    }
+                    page_chunks = self.chunker.split_text(page_text, page_metadata)
+
+                    for chunk in page_chunks:
+                        chunk["global_chunk_index"] = global_chunk_idx
+                        chunk["page_number"] = page_number
+                        global_chunk_idx += 1
+                        chunks_data.append(chunk)
 
                 # 6. Generate Vector Embeddings (GPU/CPU Threadpool offloaded)
                 if chunks_data:
@@ -86,9 +105,10 @@ class DocumentProcessor:
                         db_chunks.append(
                             DocumentChunk(
                                 document_id=document_id,
-                                chunk_index=chunk["chunk_index"],
+                                chunk_index=chunk["global_chunk_index"],
                                 content=chunk["content"],
                                 embedding=emb,
+                                page_number=chunk["page_number"],
                             )
                         )
 
@@ -96,7 +116,18 @@ class DocumentProcessor:
                     logger.info("Bulk-saving vector chunks to database...")
                     await self.vector_repository.bulk_insert_chunks(session, db_chunks)
 
-                # 7. Update parent document state
+                # 7. Extract Knowledge Graph Entities & Relationships
+                try:
+                    await self.graph_service.extract_and_persist_graph(
+                        session, document_id, extracted_text, category
+                    )
+                except Exception as graph_err:
+                    logger.error(
+                        f"Graph extraction failed for {document_id}: {graph_err}",
+                        exc_info=True,
+                    )
+
+                # 8. Update parent document state
                 db_doc.full_text = extracted_text
                 db_doc.category = category
                 db_doc.status = "PARSED"

@@ -2,7 +2,7 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from app.embeddings.base import EmbeddingProvider
+from app.providers.embeddings.base import EmbeddingProvider
 
 logger = logging.getLogger("docuflow-fastembed")
 

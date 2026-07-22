@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db_session
 from app.models.document import Document
 from app.schemas.document import DocumentListResponse, DocumentResponse
-from app.services.processor import DocumentProcessor
+from app.services.workspace.processor import DocumentProcessor
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 processor = DocumentProcessor()
@@ -26,9 +26,7 @@ processor = DocumentProcessor()
 UPLOAD_DIR = "uploads"
 
 
-@router.post(
-    "/upload", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED
-)
+@router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
@@ -112,7 +110,7 @@ async def get_document(
     return db_doc
 
 
-@router.get("/", response_model=DocumentListResponse)
+@router.get("", response_model=DocumentListResponse)
 async def list_documents(
     skip: int = 0,
     limit: int = 10,
@@ -131,4 +129,4 @@ async def list_documents(
     count_result = await session.execute(count_stmt)
     total = count_result.scalar() or 0
 
-    return {"documents": documents, "total": total}
+    return {"items": documents, "total": total}

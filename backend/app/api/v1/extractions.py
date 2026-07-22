@@ -13,9 +13,9 @@ from app.schemas.extraction import (
     ExtractionResponse,
     ProvenanceDTO,
 )
-from app.services.extractor import StructuredExtractor
-from app.services.orchestrator import AdaptiveRetrievalOrchestrator
-from app.services.provenance import ProvenanceService
+from app.services.explainability.provenance import ProvenanceService
+from app.services.extraction.extractor import StructuredExtractor
+from app.services.retrieval.orchestrator import AdaptiveRetrievalOrchestrator
 
 router = APIRouter(prefix="/extractions", tags=["Extractions"])
 
@@ -24,9 +24,7 @@ extractor = StructuredExtractor()
 provenance_service = ProvenanceService()
 
 
-@router.post(
-    "/", response_model=ExtractionResponse, status_code=status.HTTP_201_CREATED
-)
+@router.post("", response_model=ExtractionResponse, status_code=status.HTTP_201_CREATED)
 async def trigger_extraction(
     payload: ExtractionRequest,
     session: AsyncSession = Depends(get_db_session),

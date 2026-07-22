@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.embeddings.factory import EmbeddingProviderFactory
+from app.providers.embeddings.factory import EmbeddingProviderFactory
 from app.repositories.vector import VectorRepository
 
 logger = logging.getLogger("docuflow-orchestrator")
@@ -85,10 +85,7 @@ class AdaptiveRetrievalOrchestrator:
                     "content": chunk.content,
                     "score": score,
                     "retrieval_strategy": "SEMANTIC",
-                    "metadata": {
-                        "page_number": chunk.created_at.second % 5
-                        + 1  # Mock page number calculation if missing
-                    },
+                    "metadata": {"page_number": chunk.page_number},
                 }
             )
 

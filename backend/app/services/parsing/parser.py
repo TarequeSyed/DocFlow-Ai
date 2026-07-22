@@ -17,6 +17,13 @@ class BaseParser(ABC):
         """
         pass
 
+    async def parse_pages(self, file_content: bytes, mime_type: str) -> list[str]:
+        """
+        Parses document byte streams page-by-page and returns list of texts.
+        """
+        text = await self.parse(file_content, mime_type)
+        return [text] if text.strip() else []
+
 
 class NativeTextParser(BaseParser):
     """
@@ -24,9 +31,13 @@ class NativeTextParser(BaseParser):
     """
 
     async def parse(self, file_content: bytes, mime_type: str) -> str:
-        logger.info("Executing Native Text Parsing...")
+        pages = await self.parse_pages(file_content, mime_type)
+        return "\n".join(pages).strip()
+
+    async def parse_pages(self, file_content: bytes, mime_type: str) -> list[str]:
+        logger.info("Executing Native Text Parsing (pages)...")
         if mime_type == "text/plain":
-            return file_content.decode("utf-8", errors="ignore")
+            return [file_content.decode("utf-8", errors="ignore")]
 
         try:
             import fitz  # PyMuPDF
@@ -37,10 +48,10 @@ class NativeTextParser(BaseParser):
             for page in doc:
                 text_parts.append(page.get_text())
             doc.close()
-            return "\n".join(text_parts).strip()
+            return text_parts
         except Exception as e:
             logger.error(f"Native PyMuPDF extraction failed: {e}", exc_info=True)
-            return ""
+            return []
 
 
 class OCRParser(BaseParser):
@@ -49,9 +60,29 @@ class OCRParser(BaseParser):
     """
 
     async def parse(self, file_content: bytes, mime_type: str) -> str:
+        pages = await self.parse_pages(file_content, mime_type)
+        return "\n".join(pages).strip()
+
+    async def parse_pages(self, file_content: bytes, mime_type: str) -> list[str]:
         logger.info("Executing OCR text extraction...")
-        # TODO [Phase 3]: Integrate pytesseract or EasyOCR layout detection
-        return "OCR_TEXT_EXTRACTED_PLACEHOLDER"
+        try:
+            import fitz  # PyMuPDF
+
+            doc = fitz.open(stream=file_content, filetype=mime_type.split("/")[-1])
+            pages = []
+            for page in doc:
+                try:
+                    # Run PyMuPDF native page OCR via Tesseract
+                    page_text = page.get_text(option="text", ocr=True)
+                    pages.append(page_text)
+                except Exception as page_err:
+                    logger.warning(f"OCR failed for a page: {page_err}")
+                    pages.append("")
+            doc.close()
+            return pages
+        except Exception as e:
+            logger.error(f"OCRParser execution failed: {e}", exc_info=True)
+            return []
 
 
 class VisionLayoutParser(BaseParser):
@@ -79,18 +110,28 @@ class IntelligentParserOrchestrator:
         """
         Inspects the file type and routes it to the optimal parser.
         """
+        pages = await self.parse_document_pages(file_content, mime_type)
+        return "\n".join(pages).strip()
+
+    async def parse_document_pages(
+        self, file_content: bytes, mime_type: str
+    ) -> list[str]:
+        """
+        Inspects the file type, routes it to the optimal parser,
+        and returns list of page texts.
+        """
         logger.info(f"Orchestrating parsing for file type: {mime_type}")
 
         if mime_type in ["image/png", "image/jpeg", "image/jpg"]:
-            return await self.ocr_parser.parse(file_content, mime_type)
+            return await self.ocr_parser.parse_pages(file_content, mime_type)
 
-        extracted_text = await self.native_parser.parse(file_content, mime_type)
+        pages = await self.native_parser.parse_pages(file_content, mime_type)
 
         # Fallback to OCR if Native parser returned nothing (e.g. Scanned PDF)
-        if not extracted_text.strip():
+        if not any(p.strip() for p in pages):
             logger.warning(
-                "Native parser returned empty text. Falling back to OCRParser..."
+                "Native parser returned empty text pages. Falling back to OCRParser..."
             )
-            return await self.ocr_parser.parse(file_content, mime_type)
+            return await self.ocr_parser.parse_pages(file_content, mime_type)
 
-        return extracted_text
+        return pages

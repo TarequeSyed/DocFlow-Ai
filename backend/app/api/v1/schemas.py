@@ -6,12 +6,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db_session
 from app.models.document import ExtractionSchema
-from app.schemas.extraction import SchemaCreateRequest, SchemaResponse
+from app.schemas.extraction import (
+    SchemaCreateRequest,
+    SchemaListResponse,
+    SchemaResponse,
+)
 
 router = APIRouter(prefix="/schemas", tags=["Schemas"])
 
 
-@router.post("/", response_model=SchemaResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=SchemaResponse, status_code=status.HTTP_201_CREATED)
 async def create_schema(
     payload: SchemaCreateRequest,
     session: AsyncSession = Depends(get_db_session),
@@ -30,7 +34,7 @@ async def create_schema(
     return new_schema
 
 
-@router.get("/", response_model=list[SchemaResponse])
+@router.get("", response_model=SchemaListResponse)
 async def list_schemas(
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
@@ -40,4 +44,4 @@ async def list_schemas(
     stmt = select(ExtractionSchema).order_by(ExtractionSchema.name.asc())
     result = await session.execute(stmt)
     schemas = result.scalars().all()
-    return schemas
+    return {"items": schemas, "total": len(schemas)}

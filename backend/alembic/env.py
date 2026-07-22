@@ -15,10 +15,19 @@ from app.models.document import (
     DocumentChunk,
     Extraction,
     ExtractionSchema,
+    GraphEntity,
+    GraphRelationship,
 )
 
 # Explicit sentinel reference to prevent Ruff/linters from stripping unused imports
-_models_registry = [Document, DocumentChunk, ExtractionSchema, Extraction]
+_models_registry = [
+    Document,
+    DocumentChunk,
+    ExtractionSchema,
+    Extraction,
+    GraphEntity,
+    GraphRelationship,
+]
 
 config = context.config
 

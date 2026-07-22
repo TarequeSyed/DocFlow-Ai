@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
@@ -54,9 +54,12 @@ class DocumentChunk(Base, UUIDPrimaryKeyMixin):
 
     # 384-dimension vector field (matches FastEmbed BGE-small and Matryoshka OpenAI)
     embedding: Mapped[list[float]] = mapped_column(Vector(384), nullable=False)
+    page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
     )
 
     # Relationships
@@ -105,4 +108,55 @@ class Extraction(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     schema: Mapped["ExtractionSchema"] = relationship(
         "ExtractionSchema", back_populates="extractions"
+    )
+
+
+class GraphEntity(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """
+    SQL Model representing a semantic entity node extracted from a document.
+    """
+
+    __tablename__ = "graph_entities"
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    properties: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, nullable=False
+    )
+
+    # Relationships
+    document: Mapped["Document"] = relationship("Document")
+
+
+class GraphRelationship(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """
+    SQL Model representing a semantic connection/edge between two graph entities.
+    """
+
+    __tablename__ = "graph_relationships"
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("graph_entities.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    target_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("graph_entities.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    properties: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, nullable=False
+    )
+
+    # Relationships
+    document: Mapped["Document"] = relationship("Document")
+    source: Mapped["GraphEntity"] = relationship(
+        "GraphEntity", foreign_keys=[source_id], backref="outgoing_relations"
+    )
+    target: Mapped["GraphEntity"] = relationship(
+        "GraphEntity", foreign_keys=[target_id], backref="incoming_relations"
     )

@@ -31,6 +31,15 @@ class SchemaResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SchemaListResponse(BaseModel):
+    """
+    Paginated lists of extraction schema templates.
+    """
+
+    items: list[SchemaResponse]
+    total: int
+
+
 class ExtractionRequest(BaseModel):
     """
     Trigger payload to start structured extraction.

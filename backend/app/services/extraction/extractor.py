@@ -32,9 +32,7 @@ class StructuredExtractor:
             logger.info("Executing OpenAI Chat Completion extraction...")
             raw_json_str = await self._extract_via_openai(text, schema_def, api_key)
         else:
-            logger.warning(
-                "OPENAI_API_KEY not configured. Falling back to mock rules."
-            )
+            logger.warning("OPENAI_API_KEY not configured. Falling back to mock rules.")
             raw_json_str = self._extract_via_mock_rules(text, schema_def)
 
         # Validate structured JSON string against the dynamic model
@@ -102,9 +100,7 @@ class StructuredExtractor:
             f"Requested Schema:\n{fields_desc}"
         )
 
-        llm = ChatOpenAI(
-            openai_api_key=api_key, model="gpt-4o-mini", temperature=0.0
-        )
+        llm = ChatOpenAI(openai_api_key=api_key, model="gpt-4o-mini", temperature=0.0)
         response = await llm.ainvoke(
             [
                 SystemMessage(content=system_prompt),

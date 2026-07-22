@@ -2,7 +2,7 @@ import logging
 
 from openai import AsyncOpenAI
 
-from app.embeddings.base import EmbeddingProvider
+from app.providers.embeddings.base import EmbeddingProvider
 
 logger = logging.getLogger("docuflow-openai-embed")
 

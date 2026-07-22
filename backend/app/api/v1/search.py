@@ -5,13 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db_session
 from app.schemas.search import SearchQueryRequest, SearchResponse, SearchResultItem
-from app.services.orchestrator import AdaptiveRetrievalOrchestrator
+from app.services.retrieval.orchestrator import AdaptiveRetrievalOrchestrator
 
 router = APIRouter(prefix="/search", tags=["Search"])
 orchestrator = AdaptiveRetrievalOrchestrator()
 
 
-@router.post("/", response_model=SearchResponse)
+@router.post("", response_model=SearchResponse)
 async def perform_search(
     payload: SearchQueryRequest,
     session: AsyncSession = Depends(get_db_session),

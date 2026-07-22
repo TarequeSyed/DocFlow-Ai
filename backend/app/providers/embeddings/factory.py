@@ -1,9 +1,9 @@
 import logging
 
 from app.core.config import settings
-from app.embeddings.base import EmbeddingProvider
-from app.embeddings.fastembed_provider import FastEmbedProvider
-from app.embeddings.openai_provider import OpenAIEmbeddingProvider
+from app.providers.embeddings.base import EmbeddingProvider
+from app.providers.embeddings.fastembed_provider import FastEmbedProvider
+from app.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
 
 logger = logging.getLogger("docuflow-embeddings-factory")
 

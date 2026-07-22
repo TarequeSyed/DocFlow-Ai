@@ -29,5 +29,5 @@ class DocumentListResponse(BaseModel):
     Paginated lists of document resources.
     """
 
-    documents: list[DocumentResponse]
+    items: list[DocumentResponse]
     total: int
