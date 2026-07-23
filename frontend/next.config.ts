@@ -1,15 +1,15 @@
 import type { NextConfig } from "next";
 
-const nextConfig = {
+const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
         source: '/api/v1/:path*',
-        destination: 'http://localhost:8000/api/v1/:path*', // For browser local dev
-        // OR use 'http://backend:8000/api/v1/:path*' if Next.js handles the proxy entirely server-side
+        // Communicates internally through Docker to your backend service container
+        destination: 'http://backend:8000/api/v1/:path*', 
       },
     ];
   },
 };
 
-module.exports = nextConfig;
+export default nextConfig;

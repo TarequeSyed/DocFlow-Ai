@@ -1,292 +1,1020 @@
-# 🏗️ System Architecture - DocuFlow AI
+# 🏗️ System Architecture – DocuFlow AI
 
-This document details the architectural layout, core design decisions, and system blueprints for **DocuFlow AI**.
-
----
-
-## 1. Architectural Philosophy
-
-DocuFlow AI strictly adheres to **Clean Architecture** and **SOLID Principles**. The codebase is designed to decouple business rules from infrastructure details (like database models, external APIs, and OCR engines).
-
-### High-Level System Overview
-The following diagram highlights the simple flow of the platform from client down to the database and vector storage:
-
-```
-Client
-    │
-    ▼
-Next.js Frontend
-    │
-    ▼
-FastAPI Backend
-    │
-    ├── Parsing
-    ├── Retrieval
-    ├── Extraction
-    ├── Embedding Provider
-    └── Provenance
-             │
-             ▼
-PostgreSQL + pgvector
-```
-
-### The Clean Architecture Layer Model
-
-Our application is divided into concentric layers where dependencies only point inward:
-
-```
-+-----------------------------------------------------------+
-|                   INFRASTRUCTURE LAYER                    |
-|  [Next.js Frontend] [Docker] [PostgreSQL / pgvector]      |
-+-----------------------------------------------------------+
-                             |
-                             v
-+-----------------------------------------------------------+
-|                       API LAYER                           |
-|       [FastAPI Routers] [Middlewares] [Dependencies]      |
-+-----------------------------------------------------------+
-                             |
-                             v
-+-----------------------------------------------------------+
-|                    APPLICATION LAYER                      |
-|      [Services (Extraction, Parsing, Vector Ingestion)]   |
-+-----------------------------------------------------------+
-                             |
-                             v
-+-----------------------------------------------------------+
-|                     DATA ACCESS LAYER                     |
-|           [Repositories] [SQLAlchemy DB Models]           |
-+-----------------------------------------------------------+
-                             |
-                             v
-+-----------------------------------------------------------+
-|                      DOMAIN LAYER                         |
-|             [Pydantic Schemas / DTOs] [Enums]             |
-+-----------------------------------------------------------+
-```
-
-1. **Domain Layer (`schemas/`, `constants/`)**: Holds plain models (Pydantic schemas) and enterprise rules. Free from external library imports (except Pydantic).
-2. **Data Access Layer (`repositories/`, `models/`)**: Deals with raw data storage, querying, and updating. Translates DB models into domain schemas.
-3. **Application Layer (`services/`)**: Orchestrates data flows and processes logic (e.g., parsing PDFs, generating embeddings, executing extraction workflows).
-4. **API Layer (`api/`)**: Defines HTTP routes, input validation, serialization, authentication dependencies, and error handling.
-5. **Infrastructure Layer**: Outer systems like Next.js, PostgreSQL/pgvector database, Hugging Face transformers, and LLM services.
+> Version: 2.0
+>
+> This document serves as the single source of truth for the architectural design of **DocuFlow AI**. It describes how every component interacts, the responsibilities of each module, the data flow throughout the system, and the engineering principles that govern future development.
+>
+> This document is intended for developers, contributors, technical reviewers, and AI engineering interviewers.
 
 ---
 
-## 2. Core Pipelines & Component Flows
+# 1. Vision
 
-### A. Document Ingestion & Processing Pipeline
+DocuFlow AI is an enterprise-grade AI Document Intelligence Platform designed to transform unstructured documents into structured, explainable, searchable, and interconnected knowledge.
 
-This pipeline handles file uploading, parsing, type classification, intelligent chunking, and vector indexing.
+Rather than functioning as a simple Retrieval-Augmented Generation (RAG) application, DocuFlow AI aims to become a modular AI platform capable of:
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as Client (Frontend)
-    participant API as FastAPI Router
-    participant DB as Postgres Repository
-    participant Classify as Classifier Service
-    participant Parser as Parser Service
-    participant Chunker as Chunker Service
-    participant Embed as Embedding Service
-    participant VecDB as pgvector Store
+- Intelligent document ingestion
+- Schema-based information extraction
+- Cross-document reasoning
+- Explainable AI
+- Knowledge graph generation
+- Timeline reconstruction
+- Layout-aware understanding
+- Multi-document intelligence
 
-    User->>API: POST /api/v1/documents (Upload PDF/Image)
-    API->>DB: Save Document Metadata (Status: PENDING)
-    API->>Parser: Parse File (IntelligentParserOrchestrator)
-    alt Native PDF
-        Parser->>Parser: Extract Native Text (NativeTextParser)
-    else Scanned PDF / Image
-        Parser->>Parser: Run OCR Service (OCRParser)
-    else Visually Rich Document
-        Parser->>Parser: Run Vision Parser (VisionLayoutParser - Placeholder)
-    end
-    Parser->>Classify: Classify Text & Metadata (IntelligentDocumentClassifier)
-    Classify-->>Parser: Document Category (e.g. INVOICE, CONTRACT)
-    Parser->>DB: Save Full Text, Category, status=PARSED
-    Parser->>Chunker: Pass text for chunking (IntelligentChunker)
-    Chunker->>Chunker: Apply layout/semantic/character splitter rules
-    Chunker->>Embed: Pass chunks to create embeddings (EmbeddingProvider)
-    Embed->>VecDB: Save Chunks + 384-dim vector embeddings
-    VecDB-->>API: Success
-    API-->>User: HTTP 201 Created (Document ID, Category, Status: READY)
-```
+The architecture emphasizes maintainability, modularity, explainability, and production readiness.
 
-#### Document Classification & Routing
-Document classification acts as the gateway deciding the downstream processing pipeline. Depending on the predicted type, the document is routed to specialized schema extractions:
+---
+
+# 2. Architectural Philosophy
+
+Every architectural decision should satisfy the following principles:
+
+- Modular over Monolithic
+- Composition over Inheritance
+- Explicit over Implicit
+- Simplicity over Cleverness
+- Explainability over Black-box Behaviour
+- Evolutionary Design over Large Rewrites
+
+Every new module should integrate naturally into the existing architecture without requiring extensive modifications to existing code.
+
+The platform should continuously evolve while maintaining backward compatibility whenever possible.
+
+---
+
+# 3. High-Level Architecture
 
 ```
-Document Classification
-        │
-        ▼
-Pipeline Selection
-   ├── Invoice Pipeline ────> (Retrieves vendor, date, line items)
-   ├── Contract Pipeline ───> (Retrieves governing laws, limits, liability)
-   ├── General Pipeline ────> (Retrieves metadata summary summaries)
-   └── Future Pipelines ────> (Custom schema validations)
+                            Client
+                               │
+                               ▼
+                    Next.js Frontend (UI)
+                               │
+                               ▼
+                     FastAPI Application
+                               │
+ ┌─────────────────────────────┼─────────────────────────────┐
+ │                             │                             │
+ ▼                             ▼                             ▼
+
+Document Workspace      Intelligence Engine         Explainability Engine
+
+ │                             │                             │
+ │                             │                             │
+ ▼                             ▼                             ▼
+
+CRUD                Retrieval Pipeline          Citation Generator
+Metadata            Extraction Engine           Confidence Scorer
+Collections         Knowledge Graph             Evidence Builder
+Status              Timeline Builder            Metadata Resolver
+
+ └─────────────────────────────┼─────────────────────────────┘
+                               │
+                               ▼
+                   PostgreSQL + pgvector
 ```
 
 ---
 
-### B. Document Intelligence Pipeline
+# 4. Layered Architecture
 
-Converts parsed documents into structured JSON objects by retrieving context, performing cross-document reasoning, and enforcing schema-based validation.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as Client (Frontend)
-    participant API as FastAPI Router
-    participant DB as Postgres Repository
-    participant Orchestrator as Retrieval Orchestrator
-    participant Reasoner as Cross-Doc Reasoner
-    participant Service as Extraction Service
-    participant Provenance as Provenance Service
-    participant LLM as LLM Connector
-    participant Valid as Validation Layer
-
-    User->>API: POST /api/v1/extractions (Document ID, Schema ID)
-    API->>Service: Trigger Schema Extraction
-    Service->>DB: Retrieve Document and Schema metadata
-    Service->>Orchestrator: Retrieve relevant chunks (AdaptiveRetrievalOrchestrator)
-    Orchestrator->>DB: Query chunks (Select retrieval strategy)
-    DB-->>Orchestrator: Context Chunks list
-    Orchestrator-->>Service: Ranked chunks
-    Service->>Reasoner: Correlate / Cross-reference data (CrossDocReasoner)
-    Reasoner-->>Service: Reasoned multi-document facts
-    Service->>LLM: Formulate Prompt with context chunks + JSON schema rules
-    LLM-->>Service: Raw JSON Output
-    Service->>Valid: Validate JSON against Pydantic constraints
-    alt Valid Output
-        Valid-->>Service: Validated Pydantic Dictionary
-    else Invalid Output
-        Valid-->>Service: Raise ValidationError
-        Service->>LLM: Retry prompt with validation errors (up to max_retries)
-    end
-    Service->>Provenance: Compile citation trace for matches (ProvenanceService)
-    Provenance-->>Service: ProvenanceReport (Citations list + overall confidence)
-    Service->>DB: Save Extraction data + Provenance citations
-    Service-->>API: Extraction result DTO
-    API-->>User: HTTP 200 OK (Structured JSON + Citations)
 ```
++-------------------------------------------------------------+
+|                    Presentation Layer                       |
+|               Next.js + TailwindCSS + React                 |
++-------------------------------------------------------------+
+                            │
+                            ▼
++-------------------------------------------------------------+
+|                        API Layer                            |
+|               FastAPI Routers / Dependencies                |
++-------------------------------------------------------------+
+                            │
+                            ▼
++-------------------------------------------------------------+
+|                    Application Layer                        |
+|   Workspace │ Parsing │ Retrieval │ Extraction │ Graph      |
++-------------------------------------------------------------+
+                            │
+                            ▼
++-------------------------------------------------------------+
+|                     Repository Layer                        |
+|      SQLAlchemy Repositories / Database Interfaces          |
++-------------------------------------------------------------+
+                            │
+                            ▼
++-------------------------------------------------------------+
+|                     Infrastructure Layer                    |
+| PostgreSQL │ pgvector │ OCR │ Embedding Providers │ Docker  |
++-------------------------------------------------------------+
+```
+
+Dependencies always point downward.
+
+Business logic must never depend directly on infrastructure implementations.
 
 ---
 
-## 3. Core Component Designs
+# 5. Major System Modules
 
-### Adaptive Retrieval Orchestrator
-Instead of relying strictly on semantic distance vector lookups, the retrieval layer selects the strategy depending on query target intent:
+The platform is divided into independent modules.
+
+Each module owns exactly one responsibility.
 
 ```
-AdaptiveRetrievalOrchestrator
-            │
-            ├── Semantic Search (Dense pgvector cosine comparisons)
-            ├── Metadata Search (Relational filters over SQL columns)
-            ├── Hybrid Search (Keyword ranking + Dense vectors)
-            ├── Layout-aware Search (Future Placeholder - structural matching)
-            ├── Table-aware Search (Future Placeholder - tabular grid mapping)
-            └── Knowledge Graph Retrieval (Future Placeholder - entity relation walks)
+DocuFlow AI
+
+├── Document Workspace
+├── Parsing Engine
+├── Layout Intelligence Engine
+├── Retrieval Engine
+├── Extraction Engine
+├── Explainability Engine
+├── Knowledge Graph Engine
+├── Timeline Engine
+├── Embedding Engine
+├── Repository Layer
+└── Infrastructure
 ```
 
-### Cross-Document Reasoning Layer
-This module handles comparisons, audits, and validations across multiple uploaded records rather than treating documents in isolation. Key workloads include:
-- **Invoice vs. Contract**: Check if billed hourly rates comply with signed master agreement limits.
-- **Invoice vs. Purchase Order**: Validate invoice totals match original PO balances.
-- **Report vs. Meeting Notes**: Audit completed status items against planned items.
+Each module should remain independently testable and replaceable.
 
 ---
 
-### Provenance Service
-The `ProvenanceService` generates standardized audit metadata to ensure strict explainability. It isolates traceability logic from LLM prompt execution, constructing structured `ProvenanceReport` objects tracking:
-- **document_id**: UUID referencing the parent document.
-- **page_number**: Page where the information resides.
-- **chunk_id**: Specific database chunk containing the source text.
-- **retrieval_strategy**: Strategy selected by the orchestrator (e.g. SEMANTIC, METADATA).
-- **confidence_score**: Correlation metric indicating accuracy.
-- **bounding_boxes**: Coordinates showing spatial bounds (future vision integration).
-- **ocr_coordinates**: Character location mappings for auditing (future vision integration).
+# 6. Document Workspace
+
+The Document Workspace serves as the primary interaction point for uploaded documents.
+
+Unlike traditional upload-only workflows, documents become persistent workspace assets.
+
+Responsibilities include:
+
+- Upload documents
+- Delete documents
+- View document metadata
+- Search uploaded documents
+- Track processing status
+- View extraction status
+- View document relationships
+- Launch AI operations
+
+Future extensions:
+
+- Document collections
+- Version history
+- Bulk operations
+- Folder organization
+- User ownership
+- Collaboration
+
+The workspace should behave similarly to modern cloud storage systems while remaining tightly integrated with AI capabilities.
 
 ---
 
-## 4. SOLID & Clean Coding Patterns
+# 7. Core Data Flow
 
-To prevent the application from degrading into spaghetti code over time, we enforce the following guidelines:
-
-### Single Responsibility Principle (SRP)
-- **Routers** are thin. Their only job is to receive requests, run dependency injection, call a service, and return results.
-- **Services** contain business logic. They do not query the database directly; instead, they call a Repository.
-- **Repositories** handle database queries. They do not know about LLMs, schemas parsing, or file saving.
-- **ProvenanceService** compiles citation metadata and confidence scores independently of LLM prompts and extraction rules.
-
-### Open/Closed Principle (OCP)
-- **Parsers** inherit from a base class `BaseParser`. If we switch from PyMuPDF to an OCR engine, we subclass it without editing the service.
-- **LLM Clients** inherit from `BaseLLMClient`. This allows swapping between Anthropic, OpenAI, or local Ollama with zero business logic modifications.
-
-### Liskov Substitution Principle (LSP)
-- All parser implementations must strictly adhere to the `BaseParser` interface:
-  ```python
-  class BaseParser(ABC):
-      @abstractmethod
-      async def parse(self, file_content: bytes) -> ParsedDocumentDTO:
-          pass
-  ```
-
-### Dependency Inversion Principle (DIP)
-- Inject dependencies using FastAPI's `Depends` system.
-- Never instantiate database sessions, repositories, or services globally.
-- E.g., a router depends on a service interface, which in turn depends on a repository interface.
-
----
-
-## 5. Embedding Provider Pattern
-
-To ensure we can scale from local, lightweight testing environments to massive production clouds, the vector generation step is abstracted under the **Provider Pattern**.
+Every uploaded document follows a standardized lifecycle.
 
 ```
-                           +-------------------+
-                           | Ingestion Pipeline|
-                           +---------+---------+
-                                     |
-                         queries/    | (injects interface)
-                         chunks      v
-                           +-------------------+
-                           | EmbeddingProvider |
-                           |    (Abstract)     |
-                           +----+---------+----+
-                                |         |
-                     +----------+         +----------+
-                     |                               |
-                     v                               v
-           +-------------------+           +-------------------+
-           | FastEmbedProvider |           | OpenAIProvider    |
-           |   (Local CPU)     |           | (Cloud API / 384) |
-           +-------------------+           +-------------------+
+Upload
+
+↓
+
+Metadata Registration
+
+↓
+
+Document Parsing
+
+↓
+
+Layout Analysis
+
+↓
+
+Chunk Generation
+
+↓
+
+Embedding Generation
+
+↓
+
+Vector Storage
+
+↓
+
+Extraction
+
+↓
+
+Knowledge Graph Update
+
+↓
+
+Timeline Update
+
+↓
+
+Ready for Query
 ```
 
-### Rationale & Configuration Tradeoffs
-
-1. **FastEmbed (Local, Default)**:
-   - Uses BGE-small-en-v1.5 (384 dimensions).
-   - Runs locally on CPU via ONNX Runtime (no PyTorch, no CUDA required).
-   - Zero API costs, runs offline.
-   - **Engineering Rationale**: FastEmbed is the default provider because it maintains a dramatically smaller dependency footprint than PyTorch-heavy libraries, resulting in significantly lighter Docker images (saving gigabytes of cache size), faster local development cycles, and simpler container orchestration.
-2. **OpenAI (Cloud)**:
-   - Uses `text-embedding-3-small` model.
-   - Requires API key and network connection.
-   - Employs **Matryoshka Representation Learning** to truncate vectors from 1536 down to **384 dimensions** directly at the API side.
-   - Matches our local database vector column sizes without requiring migrations or column redefinitions.
+Every stage should remain independently replaceable.
 
 ---
 
-## 6. Future Pipeline Extensions
+# 8. Document Processing Pipeline
 
-Planned modules designed as expansion hooks in the platform architecture:
+```
+Client Upload
 
-- **Vision-aware Layout RAG**: Ingest layout structures (using models like Florence-2) to preserve reading order around columns, figures, and sidebars.
-- **Layout Search**: Retrieve chunks based on visual position attributes (e.g. matching headers or footnotes).
-- **Table-aware Retrieval**: Map tabular grids to markdown or structured cells to prevent table row fragmentation during chunk splits.
-- **Knowledge Graph Retrieval**: Store entity triples (subject-predicate-object) in a graph database to walk complex relation queries.
-- **Retrieval Benchmark Dashboard**: Live metrics tracking retrieval hits/misses, precision, and latency comparisons.
-- **Human Feedback Loop**: Expose validation interfaces where reviewers can confirm or override structured JSON extraction runs.
-- **Confidence Evaluation Engine**: Automate hallucinations detection checks using LLM-as-a-judge patterns.
-- **Document Relationship Graph**: Build semantic indices showing connections (similarity links or shared schemas) across document repositories.
+↓
+
+Workspace Service
+
+↓
+
+Parser Orchestrator
+
+↓
+
+Native Parser
+OCR Parser
+Layout Parser
+
+↓
+
+Document Classifier
+
+↓
+
+Chunk Generator
+
+↓
+
+Embedding Provider
+
+↓
+
+Vector Database
+
+↓
+
+Extraction Engine
+
+↓
+
+Knowledge Graph
+
+↓
+
+Timeline Builder
+
+↓
+
+Ready
+```
+
+Each stage performs exactly one responsibility.
+
+---
+
+# 9. Document Workspace Architecture
+
+```
+Document Workspace
+
+├── Upload Service
+├── Delete Service
+├── Metadata Service
+├── Search Service
+├── Status Service
+├── Processing Queue
+└── Workspace API
+```
+
+The Workspace is responsible only for document lifecycle management.
+
+It must never contain extraction logic.
+
+---
+
+# 10. Parsing Engine
+
+The Parsing Engine converts uploaded files into machine-readable content.
+
+Supported parsers include:
+
+- Native PDF Parser
+- OCR Parser
+- Image Parser
+- Office Document Parser (Future)
+
+Responsibilities:
+
+- Detect file type
+- Extract raw text
+- Preserve page structure
+- Preserve reading order
+- Preserve metadata
+- Forward structured output downstream
+
+The Parsing Engine should never perform AI reasoning.
+
+---
+
+# 11. Layout Intelligence Engine
+
+This replaces the traditional "Visual RAG" concept.
+
+Layout Intelligence is responsible for understanding visual structure rather than merely retrieving text.
+
+Responsibilities include:
+
+- Table Detection
+- Reading Order Reconstruction
+- Bounding Box Extraction
+- Layout Preservation
+- Region Detection
+- Header/Footer Identification
+- Multi-column Analysis
+- Form Understanding
+
+Future capabilities:
+
+- Signature Detection
+- Stamp Detection
+- Diagram Parsing
+- Handwritten Notes
+
+The output of this engine enriches downstream retrieval and extraction.
+
+---
+
+# 12. Retrieval Engine
+
+The Retrieval Engine determines which information should be sent to the LLM.
+
+Supported retrieval strategies include:
+
+- Semantic Search
+- Metadata Search
+- Hybrid Search
+- Layout-aware Retrieval
+- Table-aware Retrieval
+- Knowledge Graph Retrieval
+- Timeline-aware Retrieval
+
+The engine should automatically select the most appropriate retrieval strategy.
+
+Future strategies may be added without modifying downstream business logic.
+
+---
+
+# 13. Extraction Engine
+
+The Extraction Engine converts retrieved context into validated structured information.
+
+Responsibilities:
+
+- Prompt construction
+- Schema injection
+- LLM interaction
+- Validation
+- Retry mechanisms
+- JSON enforcement
+- Business rule validation
+
+Extraction should always remain deterministic after validation.
+
+---
+
+# 14. Explainability Engine
+
+Every AI answer should be explainable.
+
+The Explainability Engine is responsible for generating transparent evidence.
+
+Modules include:
+
+```
+Explainability Engine
+
+├── Citation Generator
+├── Confidence Scorer
+├── Evidence Extractor
+├── Metadata Resolver
+└── Reasoning Trace Builder
+```
+
+Every extracted field should ideally contain:
+
+- Source document
+- Page number
+- Chunk reference
+- Confidence score
+- Supporting evidence
+- Retrieval strategy
+
+This module exists independently from the LLM to ensure explainability remains consistent regardless of model provider.
+
+---
+
+# 15. Knowledge Graph Engine
+
+The Knowledge Graph Engine transforms isolated document information into interconnected knowledge.
+
+It should not simply visualize documents.
+
+Instead, it should construct semantic relationships between entities.
+
+Example entities include:
+
+- Supplier
+- Customer
+- Invoice
+- Purchase Order
+- Contract
+- Material
+- Employee
+- Project
+- Payment
+- Certificate
+
+Responsibilities include:
+
+- Entity Detection
+- Entity Linking
+- Relationship Discovery
+- Graph Construction
+- Graph Updates
+- Graph Queries
+- Graph Visualization DTO generation
+
+The implementation technology is intentionally abstract.
+
+Antigravity is encouraged to choose the implementation that best balances:
+
+- Maintainability
+- Scalability
+- Visualization quality
+- Performance
+- Simplicity
+
+Possible implementations include:
+
+- JSON Graph
+- NetworkX
+- Cytoscape
+- Force Graph
+- Neo4j (Future)
+
+The chosen implementation should remain replaceable without affecting business logic.
+
+# 16. Timeline Intelligence Engine
+
+The Timeline Intelligence Engine reconstructs the chronological flow of related documents.
+
+Rather than simply sorting documents by upload time, this engine infers relationships using multiple reasoning strategies.
+
+The objective is to reconstruct the lifecycle of a business process.
+
+Example:
+
+```
+Quotation
+    ↓
+Purchase Order
+    ↓
+Invoice
+    ↓
+Partial Payment
+    ↓
+Delivery Note
+    ↓
+Final Payment
+    ↓
+Warranty Certificate
+```
+
+This allows users to understand the progression of work without manually organizing documents.
+
+## Responsibilities
+
+- Timeline Reconstruction
+- Relationship Ordering
+- Event Extraction
+- Date Normalization
+- Missing Link Detection
+- Chronological Visualization DTO generation
+
+## Timeline Strategies
+
+The Timeline Engine should evaluate multiple ordering strategies.
+
+```
+Timeline Builder
+
+├── Explicit Date Matching
+├── Metadata Ordering
+├── Entity Relationship Ordering
+├── Semantic Similarity Ordering
+└── AI-based Timeline Inference
+```
+
+The engine should automatically select the highest-confidence ordering strategy.
+
+Future implementations may combine multiple strategies into hybrid ordering.
+
+---
+
+# 17. Cross-Document Intelligence Engine
+
+Traditional document systems treat each document independently.
+
+DocuFlow AI instead performs reasoning across multiple documents.
+
+Responsibilities include:
+
+- Multi-document Retrieval
+- Cross-document Validation
+- Entity Resolution
+- Duplicate Detection
+- Information Reconciliation
+- Business Rule Verification
+
+Examples include:
+
+Invoice ↔ Purchase Order
+
+Contract ↔ Invoice
+
+Quotation ↔ Payment
+
+Delivery Note ↔ Invoice
+
+Invoice ↔ Bank Receipt
+
+Future extensions:
+
+- Compliance Verification
+- Procurement Auditing
+- Financial Reconciliation
+- Multi-document Question Answering
+
+---
+
+# 18. Knowledge Graph + Timeline Integration
+
+The Knowledge Graph and Timeline Engine should operate together rather than independently.
+
+Knowledge Graph
+
+```
+Supplier
+
+↓
+
+Invoice
+
+↓
+
+Payment
+```
+
+Timeline
+
+```
+Quotation
+
+↓
+
+Purchase Order
+
+↓
+
+Invoice
+
+↓
+
+Payment
+```
+
+Combined View
+
+```
+Supplier A
+
+│
+
+├── Quotation
+
+│
+
+├── Purchase Order
+
+│
+
+├── Invoice
+
+│
+
+└── Payment
+```
+
+The frontend may visualize these relationships using either 2D or 3D graph layouts.
+
+The implementation technology remains flexible.
+
+---
+
+# 19. Demo Workspace
+
+The repository should include a complete demonstration workspace.
+
+Its purpose is to allow reviewers and interviewers to experience the full platform without uploading their own documents.
+
+The Demo Workspace should include:
+
+- Realistic procurement documents
+- Contracts
+- Quotations
+- Purchase Orders
+- Invoices
+- Payment Receipts
+- Delivery Notes
+
+The documents should intentionally reference one another.
+
+Example:
+
+Quotation A
+
+↓
+
+Purchase Order A
+
+↓
+
+Invoice A
+
+↓
+
+Partial Payment
+
+↓
+
+Final Payment
+
+↓
+
+Warranty
+
+The platform should automatically:
+
+- extract structured information
+- build the knowledge graph
+- reconstruct the timeline
+- answer questions
+- generate explainable citations
+
+This allows every major feature to be demonstrated immediately.
+
+---
+
+# 20. Explainable Retrieval Pipeline
+
+Every answer produced by the system should include its reasoning metadata.
+
+```
+User Question
+
+↓
+
+Retrieval Engine
+
+↓
+
+Relevant Chunks
+
+↓
+
+Knowledge Graph
+
+↓
+
+Timeline Context
+
+↓
+
+LLM Extraction
+
+↓
+
+Validation
+
+↓
+
+Explainability Engine
+
+↓
+
+Final Response
+```
+
+Every response should ideally contain:
+
+- extracted answer
+- confidence score
+- source document
+- page number
+- supporting evidence
+- retrieval strategy
+- related documents
+
+The objective is to maximize user trust.
+
+---
+
+# 21. Provider Pattern
+
+External services should never be tightly coupled with business logic.
+
+Every provider should implement a common interface.
+
+Examples include:
+
+Embedding Provider
+
+```
+EmbeddingProvider
+
+├── FastEmbed
+├── OpenAI
+├── VoyageAI
+└── Future Providers
+```
+
+LLM Provider
+
+```
+LLMProvider
+
+├── OpenAI
+├── Anthropic
+├── Gemini
+├── Ollama
+└── Future Providers
+```
+
+OCR Provider
+
+```
+OCRProvider
+
+├── PyMuPDF
+├── Tesseract
+├── Google Vision
+├── Azure OCR
+└── Future Providers
+```
+
+Business logic should remain independent from provider implementations.
+
+---
+
+# 22. Recommended Repository Structure
+
+```
+backend/
+
+api/
+core/
+config/
+
+services/
+
+    workspace/
+    parsing/
+    retrieval/
+    extraction/
+    explainability/
+    graph/
+    timeline/
+    embeddings/
+    layout/
+
+repositories/
+
+models/
+
+schemas/
+
+providers/
+
+    llm/
+    embeddings/
+    parser/
+    ocr/
+
+utils/
+
+tests/
+
+frontend/
+
+components/
+
+pages/
+
+hooks/
+
+lib/
+
+docs/
+
+improvements/
+```
+
+Each directory should own exactly one responsibility.
+
+---
+
+# 23. AI Architectural Freedom
+
+The architecture described in this document represents the intended direction of the project rather than a strict implementation constraint.
+
+When implementing any feature, Antigravity should evaluate whether an alternative design provides superior:
+
+- maintainability
+- scalability
+- modularity
+- explainability
+- performance
+- developer experience
+- user experience
+
+If a better implementation exists:
+
+- explain the reasoning
+- explain the tradeoffs
+- document the architectural decision
+- preserve compatibility whenever practical
+
+The objective is not to follow this document literally.
+
+The objective is to build the best possible version of DocuFlow AI.
+
+---
+
+# 24. Architectural Innovation
+
+Antigravity is encouraged to think beyond explicit feature requests.
+
+Whenever appropriate, propose additional improvements that naturally integrate into the existing architecture.
+
+Suggested improvements should:
+
+- solve real engineering problems
+- improve AI reliability
+- reduce technical debt
+- improve maintainability
+- enhance explainability
+- improve user experience
+- remain realistically implementable
+
+Before implementation:
+
+- explain the proposal
+- justify the engineering value
+- describe architectural impact
+
+Innovation should always serve the product rather than simply introducing complexity.
+
+---
+
+# 25. Development Lifecycle
+
+Every feature should follow a consistent engineering workflow.
+
+```
+Understand
+
+↓
+
+Analyze
+
+↓
+
+Design
+
+↓
+
+Plan
+
+↓
+
+Implement
+
+↓
+
+Verify
+
+↓
+
+Debug
+
+↓
+
+Document
+
+↓
+
+Review
+
+↓
+
+Commit
+```
+
+Each stage should be completed before progressing to the next.
+
+---
+
+# 26. Definition of Architectural Completion
+
+A module is considered architecturally complete only when:
+
+- responsibilities are clearly defined
+- interfaces are stable
+- dependencies remain loosely coupled
+- documentation is updated
+- implementation remains replaceable
+- tests can be written independently
+- future extensions are clearly identified
+
+---
+
+# 27. Future Expansion Hooks
+
+The architecture intentionally reserves extension points for future capabilities.
+
+Examples include:
+
+- Visual Question Answering
+- Agentic Workflows
+- Human Feedback Loops
+- Retrieval Benchmark Dashboard
+- Document Version Graph
+- Multi-user Collaboration
+- Enterprise Authentication
+- Workflow Automation
+- Compliance Auditing
+- Document Recommendation Engine
+- AI-powered Document Classification
+- Natural Language Workflow Builder
+- Active Learning Pipelines
+- Autonomous Extraction Optimization
+
+Future modules should integrate without requiring significant architectural changes.
+
+---
+
+# 28. Architectural Principles
+
+Every engineering decision should optimize for:
+
+- Simplicity
+- Readability
+- Maintainability
+- Modularity
+- Explainability
+- Scalability
+- Reliability
+- Testability
+- Production Readiness
+
+Avoid introducing unnecessary complexity simply because it is technically interesting.
+
+Prefer solutions that another engineer can understand, extend, and maintain one year later.
+
+---
+
+# 29. Final Architectural Vision
+
+DocuFlow AI should evolve into a modular AI Document Intelligence Platform capable of managing, understanding, connecting, and explaining complex document ecosystems.
+
+The platform should not merely answer questions about documents.
+
+It should:
+
+- understand relationships
+- reconstruct workflows
+- explain its reasoning
+- connect isolated information
+- provide trustworthy AI outputs
+- remain extensible for future AI capabilities
+
+Every architectural decision should move the project closer to becoming a production-grade AI platform suitable for enterprise environments while remaining understandable, maintainable, and interview-ready.

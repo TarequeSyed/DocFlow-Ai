@@ -1,0 +1,14 @@
+ACME SOFTWARE CORP - QUOTATION
+Date: 2026-07-01
+Supplier: Acme Software Corp
+Customer: Client Corp
+Reference: QUOTE-8820
+
+Services Offered:
+1. Document Intelligence Platform Core: $10,000.00
+2. Custom Pipeline Configuration: $2,000.00
+3. Training and Support: $1,500.00
+
+Total Proposed: $13,500.00
+
+Accepted by Client Corp Representative.

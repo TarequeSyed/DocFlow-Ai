@@ -70,7 +70,14 @@ interface ExtractionResult {
   created_at: string;
 }
 
-type TabType = "documents" | "schemas" | "extract" | "search";
+type TabType =
+  | "documents"
+  | "schemas"
+  | "extract"
+  | "search"
+  | "graph"
+  | "timeline"
+  | "reconcile";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<TabType>("documents");
@@ -106,6 +113,22 @@ export default function Home() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchLimit, setSearchLimit] = useState(5);
 
+  // KG states
+  const [graphData, setGraphData] = useState<{ nodes: any[]; edges: any[] }>({ nodes: [], edges: [] });
+  const [isGraphLoading, setIsGraphLoading] = useState(false);
+  const [graphDocId, setGraphDocId] = useState("");
+
+  // Timeline states
+  const [timelineEvents, setTimelineEvents] = useState<any[]>([]);
+  const [isTimelineLoading, setIsTimelineLoading] = useState(false);
+
+  // Reconciliation states
+  const [reconcileInvoiceId, setReconcileInvoiceId] = useState("");
+  const [reconcilePoId, setReconcilePoId] = useState("");
+  const [reconciliationReport, setReconciliationReport] = useState<any | null>(null);
+  const [isReconciling, setIsReconciling] = useState(false);
+  const [reconcileError, setReconcileError] = useState<string | null>(null);
+
   // Modal State for Scaffolded modules
   const [comingSoonModal, setComingSoonModal] = useState<{
     isOpen: boolean;
@@ -115,10 +138,10 @@ export default function Home() {
   // Fetch document directory list
   const fetchDocuments = useCallback(async () => {
     try {
-      const response = await fetch(`${BACKEND_URL}/documents/?limit=50`);
+      const response = await fetch(`${BACKEND_URL}/documents?limit=50`);
       if (response.ok) {
         const data = await response.json();
-        setDocuments(data.documents);
+        setDocuments(data.items);
       }
     } catch (e) {
       console.error("Failed fetching documents directory:", e);
@@ -128,21 +151,90 @@ export default function Home() {
   // Fetch extraction schemas
   const fetchSchemas = useCallback(async () => {
     try {
-      const response = await fetch(`${BACKEND_URL}/schemas/`);
+      const response = await fetch(`${BACKEND_URL}/schemas`);
       if (response.ok) {
         const data = await response.json();
-        setSchemas(data);
+        setSchemas(data.items);
       }
     } catch (e) {
       console.error("Failed fetching schemas templates:", e);
     }
   }, []);
 
+  const fetchGraph = useCallback(async (docId?: string) => {
+    setIsGraphLoading(true);
+    try {
+      const url = docId ? `${BACKEND_URL}/graph?document_id=${docId}` : `${BACKEND_URL}/graph`;
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        setGraphData(data);
+      }
+    } catch (e) {
+      console.error("Failed fetching graph data:", e);
+    } finally {
+      setIsGraphLoading(false);
+    }
+  }, []);
+
+  const fetchTimeline = useCallback(async () => {
+    setIsTimelineLoading(true);
+    try {
+      const response = await fetch(`${BACKEND_URL}/timeline`);
+      if (response.ok) {
+        const data = await response.json();
+        setTimelineEvents(data.events || []);
+      }
+    } catch (e) {
+      console.error("Failed fetching timeline events:", e);
+    } finally {
+      setIsTimelineLoading(false);
+    }
+  }, []);
+
+  const runReconciliation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reconcileInvoiceId || !reconcilePoId) return;
+
+    setIsReconciling(true);
+    setReconcileError(null);
+    setReconciliationReport(null);
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/reconciliation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoice_id: reconcileInvoiceId,
+          purchase_order_id: reconcilePoId,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const data = await response.json();
+      setReconciliationReport(data);
+    } catch (err: any) {
+      setReconcileError(err.message || "Failed running reconciliation check.");
+    } finally {
+      setIsReconciling(false);
+    }
+  };
+
   // Refresh catalogs
   useEffect(() => {
     fetchDocuments();
     fetchSchemas();
   }, [fetchDocuments, fetchSchemas]);
+
+  useEffect(() => {
+    if (activeTab === "graph") {
+      fetchGraph(graphDocId);
+    } else if (activeTab === "timeline") {
+      fetchTimeline();
+    }
+  }, [activeTab, graphDocId, fetchGraph, fetchTimeline]);
 
   // Document Ingestion Polling: Poll if any document is still parsing
   useEffect(() => {
@@ -171,7 +263,7 @@ export default function Home() {
     formData.append("file", uploadFile);
 
     try {
-      const response = await fetch(`${BACKEND_URL}/documents/upload`, {
+      const response = await fetch(`${BACKEND_URL}/documents`, {
         method: "POST",
         body: formData,
       });
@@ -228,7 +320,7 @@ export default function Home() {
     });
 
     try {
-      const response = await fetch(`${BACKEND_URL}/schemas/`, {
+      const response = await fetch(`${BACKEND_URL}/schemas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -267,7 +359,7 @@ export default function Home() {
     setExtractionResult(null);
 
     try {
-      const response = await fetch(`${BACKEND_URL}/extractions/`, {
+      const response = await fetch(`${BACKEND_URL}/extractions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -296,7 +388,7 @@ export default function Home() {
 
     setIsSearching(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/search/`, {
+      const response = await fetch(`${BACKEND_URL}/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -402,6 +494,42 @@ export default function Home() {
               <Search className="w-4.5 h-4.5" />
               Semantic Search
             </button>
+
+            <button
+              onClick={() => setActiveTab("graph")}
+              className={`w-full text-left px-3 py-2.5 rounded-xl flex items-center gap-3 font-semibold text-[14px] transition-all border cursor-pointer ${
+                activeTab === "graph"
+                  ? "bg-[#DBEAFE]/80 text-[#2563EB] border-[#DBEAFE]"
+                  : "text-[#4B5563] border-transparent hover:bg-[#F3F4F6] hover:text-[#111827]"
+              }`}
+            >
+              <GitBranch className="w-4.5 h-4.5" />
+              Knowledge Graph
+            </button>
+
+            <button
+              onClick={() => setActiveTab("timeline")}
+              className={`w-full text-left px-3 py-2.5 rounded-xl flex items-center gap-3 font-semibold text-[14px] transition-all border cursor-pointer ${
+                activeTab === "timeline"
+                  ? "bg-[#DBEAFE]/80 text-[#2563EB] border-[#DBEAFE]"
+                  : "text-[#4B5563] border-transparent hover:bg-[#F3F4F6] hover:text-[#111827]"
+              }`}
+            >
+              <BarChart3 className="w-4.5 h-4.5" />
+              Chronological Timeline
+            </button>
+
+            <button
+              onClick={() => setActiveTab("reconcile")}
+              className={`w-full text-left px-3 py-2.5 rounded-xl flex items-center gap-3 font-semibold text-[14px] transition-all border cursor-pointer ${
+                activeTab === "reconcile"
+                  ? "bg-[#DBEAFE]/80 text-[#2563EB] border-[#DBEAFE]"
+                  : "text-[#4B5563] border-transparent hover:bg-[#F3F4F6] hover:text-[#111827]"
+              }`}
+            >
+              <CheckCircle2 className="w-4.5 h-4.5" />
+              3-Way Reconciliation
+            </button>
           </div>
 
           {/* Visually Separated Scaffolded Modules */}
@@ -425,18 +553,10 @@ export default function Home() {
               </button>
               
               <button
-                onClick={() => openComingSoon("Knowledge Graph")}
-                className="w-full text-left px-3 py-2 rounded-xl flex items-center gap-3 text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111827] text-[13px] font-medium transition-all group cursor-pointer"
-              >
-                <GitBranch className="w-4 h-4 text-[#9CA3AF] group-hover:text-[#4B5563]" />
-                <span>Knowledge Graph</span>
-              </button>
-              
-              <button
                 onClick={() => openComingSoon("Benchmark Dashboard")}
                 className="w-full text-left px-3 py-2 rounded-xl flex items-center gap-3 text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111827] text-[13px] font-medium transition-all group cursor-pointer"
               >
-                <BarChart3 className="w-4 h-4 text-[#9CA3AF] group-hover:text-[#4B5563]" />
+                <BarChart3 className="w-4.5 h-4.5 text-[#9CA3AF] group-hover:text-[#4B5563]" />
                 <span>Benchmark Dashboard</span>
               </button>
             </div>
@@ -975,6 +1095,413 @@ export default function Home() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* TAB 5: KNOWLEDGE GRAPH */}
+          {activeTab === "graph" && (
+            <div className="flex-grow flex flex-col gap-8 animate-fade-in">
+              <div>
+                <h2 className="text-[26px] font-bold tracking-tight text-[#111827] leading-[1.2]">
+                  Semantic Knowledge Graph
+                </h2>
+                <p className="text-[14px] text-[#4B5563] mt-2 leading-[1.65]">
+                  Visual representation of semantic entity nodes and relationship edges extracted from documents in the workspace.
+                </p>
+              </div>
+
+              {/* Filtering */}
+              <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
+                <div className="flex items-center gap-3 w-full sm:w-auto text-xs">
+                  <span className="font-bold text-[#6B7280]">Filter Document:</span>
+                  <select
+                    value={graphDocId}
+                    onChange={(e) => setGraphDocId(e.target.value)}
+                    className="h-10 px-3 bg-white border border-[#E5E7EB] rounded-xl text-xs text-[#111827] outline-none shadow-sm cursor-pointer min-w-[200px]"
+                  >
+                    <option value="">All Documents</option>
+                    {documents.map((doc) => (
+                      <option key={doc.id} value={doc.id}>{doc.filename}</option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  onClick={() => fetchGraph(graphDocId)}
+                  className="h-10 px-5 border border-[#E5E7EB] hover:bg-[#F3F4F6] rounded-xl text-xs font-bold transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-sm"
+                >
+                  Refresh Graph
+                </button>
+              </div>
+
+              {isGraphLoading ? (
+                <div className="flex-grow flex items-center justify-center py-20">
+                  <Loader2 className="w-8 h-8 text-[#2563EB] animate-spin" />
+                </div>
+              ) : graphData.nodes.length === 0 ? (
+                <div className="flex-grow border border-[#E5E7EB] border-dashed rounded-2xl flex flex-col items-center justify-center py-20 text-[#6B7280] text-[14px]">
+                  No graph entities extracted yet. Ensure documents are processed.
+                </div>
+              ) : (
+                <div className="flex flex-col lg:flex-row gap-8">
+                  {/* Graph Canvas SVG */}
+                  <div className="flex-1 bg-[#F9FAFB] border border-[#ECEFF3] rounded-2xl p-4 flex justify-center items-center shadow-[inset_0_1px_3px_rgba(0,0,0,0.02)] min-h-[420px]">
+                    <svg width="100%" height="400" viewBox="0 0 600 400" className="max-w-full">
+                      <defs>
+                        <marker
+                          id="arrow"
+                          viewBox="0 0 10 10"
+                          refX="18"
+                          refY="5"
+                          markerWidth="6"
+                          markerHeight="6"
+                          orient="auto-start-reverse"
+                        >
+                          <path d="M 0 0 L 10 5 L 0 10 z" fill="#9CA3AF" />
+                        </marker>
+                      </defs>
+
+                      {/* Render relationship edges */}
+                      {(() => {
+                        const width = 600;
+                        const height = 400;
+                        const radius = 120;
+                        const centerX = width / 2;
+                        const centerY = height / 2;
+                        
+                        const nodesWithCoords = graphData.nodes.map((node: any, idx: number) => {
+                          const angle = (idx / graphData.nodes.length) * 2 * Math.PI;
+                          const x = graphData.nodes.length > 1 ? centerX + radius * Math.cos(angle) : centerX;
+                          const y = graphData.nodes.length > 1 ? centerY + radius * Math.sin(angle) : centerY;
+                          return { ...node, x, y };
+                        });
+
+                        return (
+                          <>
+                            {graphData.edges.map((edge: any, idx: number) => {
+                              const sourceNode = nodesWithCoords.find((n: any) => n.id === edge.source);
+                              const targetNode = nodesWithCoords.find((n: any) => n.id === edge.target);
+
+                              if (!sourceNode || !targetNode) return null;
+
+                              return (
+                                <g key={idx}>
+                                  <line
+                                    x1={sourceNode.x}
+                                    y1={sourceNode.y}
+                                    x2={targetNode.x}
+                                    y2={targetNode.y}
+                                    stroke="#D1D5DB"
+                                    strokeWidth="1.5"
+                                    markerEnd="url(#arrow)"
+                                  />
+                                  <text
+                                    x={(sourceNode.x + targetNode.x) / 2}
+                                    y={(sourceNode.y + targetNode.y) / 2 - 4}
+                                    textAnchor="middle"
+                                    fill="#6B7280"
+                                    fontSize="8"
+                                    fontWeight="bold"
+                                    className="bg-white px-1"
+                                  >
+                                    {edge.type}
+                                  </text>
+                                </g>
+                              );
+                            })}
+
+                            {/* Render entity nodes */}
+                            {nodesWithCoords.map((node: any) => (
+                              <g key={node.id} className="cursor-pointer group">
+                                <circle
+                                  cx={node.x}
+                                  cy={node.y}
+                                  r="22"
+                                  fill={
+                                    node.type === "SUPPLIER" ? "#FEF3C7" :
+                                    node.type === "CUSTOMER" ? "#DBEAFE" :
+                                    node.type === "INVOICE" ? "#E0F2FE" :
+                                    node.type === "AMOUNT" ? "#D1FAE5" : "#E0F2FE"
+                                  }
+                                  stroke={
+                                    node.type === "SUPPLIER" ? "#F59E0B" :
+                                    node.type === "CUSTOMER" ? "#3B82F6" :
+                                    node.type === "INVOICE" ? "#0284C7" :
+                                    node.type === "AMOUNT" ? "#10B981" : "#0284C7"
+                                  }
+                                  strokeWidth="2"
+                                  className="transition-all group-hover:scale-105"
+                                />
+                                <text
+                                  x={node.x}
+                                  y={node.y + 3}
+                                  textAnchor="middle"
+                                  fontSize="7"
+                                  fontWeight="bold"
+                                  fill={
+                                    node.type === "SUPPLIER" ? "#92400E" :
+                                    node.type === "CUSTOMER" ? "#1E40AF" :
+                                    node.type === "INVOICE" ? "#075985" :
+                                    node.type === "AMOUNT" ? "#065F46" : "#075985"
+                                  }
+                                >
+                                  {node.type.substring(0, 4)}
+                                </text>
+                                <text
+                                  x={node.x}
+                                  y={node.y + 34}
+                                  textAnchor="middle"
+                                  fontSize="9"
+                                  fontWeight="bold"
+                                  fill="#111827"
+                                >
+                                  {node.label.length > 12 ? node.label.substring(0, 10) + ".." : node.label}
+                                </text>
+                              </g>
+                            ))}
+                          </>
+                        );
+                      })()}
+                    </svg>
+                  </div>
+
+                  {/* List Details sidebar */}
+                  <div className="w-full lg:w-72 flex flex-col gap-4 border border-[#ECEFF3] p-5 rounded-2xl bg-[#FCFCFD]">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#6B7280]">
+                      Entity Directory ({graphData.nodes.length})
+                    </h3>
+                    <div className="flex flex-col gap-2 max-h-[340px] overflow-auto pr-1">
+                      {graphData.nodes.map((node: any) => (
+                        <div
+                          key={node.id}
+                          className="p-3 bg-white border border-[#E5E7EB] rounded-xl flex flex-col gap-1 shadow-sm hover:border-[#2563EB]/20 transition-all text-xs"
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="font-bold text-[#111827]">{node.label}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                              node.type === "SUPPLIER" ? "bg-[#FEF3C7] text-[#92400E]" :
+                              node.type === "CUSTOMER" ? "bg-[#DBEAFE] text-[#1E40AF]" :
+                              node.type === "INVOICE" ? "bg-[#E0F2FE] text-[#075985]" :
+                              "bg-[#ECEFF3] text-[#4B5563]"
+                            }`}>
+                              {node.type}
+                            </span>
+                          </div>
+                          {Object.keys(node.properties || {}).length > 0 && (
+                            <div className="text-[10px] text-[#6B7280] font-medium border-t border-[#ECEFF3] pt-1.5 mt-1.5 flex flex-col gap-0.5">
+                              {Object.entries(node.properties).map(([k, v]) => (
+                                <div key={k} className="flex justify-between">
+                                  <span className="capitalize">{k.replace("_", " ")}:</span>
+                                  <span className="font-semibold text-[#4B5563]">{String(v)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 6: TIMELINE LIFECYCLE */}
+          {activeTab === "timeline" && (
+            <div className="flex-grow flex flex-col gap-8 animate-fade-in">
+              <div>
+                <h2 className="text-[26px] font-bold tracking-tight text-[#111827] leading-[1.2]">
+                  Chronological Lifecycle
+                </h2>
+                <p className="text-[14px] text-[#4B5563] mt-2 leading-[1.65]">
+                  Reconstructs the lifecycle timeline and chronological flow of business workflows across documents.
+                </p>
+              </div>
+
+              {isTimelineLoading ? (
+                <div className="flex-grow flex items-center justify-center py-20">
+                  <Loader2 className="w-8 h-8 text-[#2563EB] animate-spin" />
+                </div>
+              ) : timelineEvents.length === 0 ? (
+                <div className="flex-grow border border-[#E5E7EB] border-dashed rounded-2xl flex flex-col items-center justify-center py-20 text-[#6B7280] text-[14px]">
+                  No timeline events found. Index documents to auto-reconstruct lifecycle streams.
+                </div>
+              ) : (
+                <div className="relative border-l-2 border-[#E5E7EB] ml-4 pl-8 flex flex-col gap-8 my-4 text-xs">
+                  {timelineEvents.map((ev: any, idx: number) => (
+                    <div key={idx} className="relative group flex flex-col gap-3">
+                      {/* Timeline point */}
+                      <span className="absolute -left-[41px] top-1.5 w-6 h-6 rounded-full bg-white border-2 border-[#2563EB] flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-all shadow-sm">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />
+                      </span>
+
+                      {/* Event Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                        <div className="flex items-center gap-2.5">
+                          <span className="px-2.5 py-1 rounded-full bg-[#FCFCFD] border border-[#E5E7EB] text-[11px] font-bold text-[#111827] shadow-sm">
+                            {ev.event_date}
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-full bg-[#DBEAFE] text-[10px] font-bold text-[#2563EB]">
+                            {ev.event_type}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-[#6B7280] font-bold uppercase tracking-wider">
+                          {ev.document_title}
+                        </span>
+                      </div>
+
+                      {/* Event details card */}
+                      <div className="p-5 border border-[#E5E7EB] bg-white rounded-2xl hover:shadow-md transition-all flex flex-col gap-3">
+                        <p className="text-[13.5px] font-semibold text-[#111827] leading-[1.5]">
+                          {ev.description}
+                        </p>
+                        
+                        {/* Missing links alert */}
+                        {ev.metadata?.missing_lifecycle_links && ev.metadata.missing_lifecycle_links.length > 0 && (
+                          <div className="bg-[#FEF2F2] border border-[#FEE2E2] rounded-xl p-3.5 flex items-start gap-2.5 text-[#DC2626]">
+                            <AlertTriangle className="w-4.5 h-4.5 text-[#DC2626] shrink-0 mt-0.5" />
+                            <div className="flex flex-col gap-1">
+                              <span className="font-bold text-[11px] uppercase tracking-wider">Missing Lifecycle Steps</span>
+                              <p className="text-[11px] text-[#B91C1C] leading-relaxed font-semibold">
+                                System identified missing upstream documents in this process thread: {ev.metadata.missing_lifecycle_links.join(", ")}.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* References */}
+                        {ev.metadata?.references && Object.keys(ev.metadata.references).length > 0 && (
+                          <div className="flex flex-wrap gap-2 pt-2 border-t border-[#ECEFF3]">
+                            {Object.entries(ev.metadata.references).map(([k, v]) => (
+                              <span key={k} className="px-2.5 py-1 rounded-full bg-[#F3F4F6] text-[10px] font-semibold text-[#4B5563]">
+                                <span className="capitalize">{k}: </span>
+                                <span className="font-bold text-[#111827]">{String(v)}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 7: 3-WAY MATCHING RECONCILIATION */}
+          {activeTab === "reconcile" && (
+            <div className="flex-grow flex flex-col gap-8 animate-fade-in">
+              <div>
+                <h2 className="text-[26px] font-bold tracking-tight text-[#111827] leading-[1.2]">
+                  3-Way Reconciliation
+                </h2>
+                <p className="text-[14px] text-[#4B5563] mt-2 leading-[1.65]">
+                  Audit and reconcile billing compliance. Compares Invoice extraction totals and supplier identifiers against Purchase Order items and Delivery receipts.
+                </p>
+              </div>
+
+              {/* Selector form */}
+              <form onSubmit={runReconciliation} className="border border-[#E5E7EB] bg-[#FCFCFD] p-6 rounded-2xl flex flex-col sm:flex-row gap-4 shadow-sm items-end text-xs">
+                <div className="flex-1 flex flex-col gap-1.5 w-full">
+                  <span className="font-bold text-[#6B7280]">Select Purchase Order (PO):</span>
+                  <select
+                    value={reconcilePoId}
+                    onChange={(e) => setReconcilePoId(e.target.value)}
+                    className="h-11 px-3 bg-white border border-[#E5E7EB] rounded-xl text-xs text-[#111827] outline-none shadow-sm cursor-pointer"
+                    required
+                  >
+                    <option value="">-- Choose PO --</option>
+                    {documents.map((doc) => (
+                      <option key={doc.id} value={doc.id}>{doc.filename} ({doc.category})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex-1 flex flex-col gap-1.5 w-full">
+                  <span className="font-bold text-[#6B7280]">Select Invoice:</span>
+                  <select
+                    value={reconcileInvoiceId}
+                    onChange={(e) => setReconcileInvoiceId(e.target.value)}
+                    className="h-11 px-3 bg-white border border-[#E5E7EB] rounded-xl text-xs text-[#111827] outline-none shadow-sm cursor-pointer"
+                    required
+                  >
+                    <option value="">-- Choose Invoice --</option>
+                    {documents.map((doc) => (
+                      <option key={doc.id} value={doc.id}>{doc.filename} ({doc.category})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isReconciling || !reconcileInvoiceId || !reconcilePoId}
+                  className="h-11 px-6 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:bg-[#9CA3AF] disabled:cursor-not-allowed text-white font-bold rounded-xl text-xs transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-sm shadow-[#2563EB]/10 shrink-0 flex items-center gap-2"
+                >
+                  {isReconciling && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  {isReconciling ? "Auditing Match..." : "Run Reconciliation"}
+                </button>
+              </form>
+
+              {reconcileError && (
+                <div className="flex items-center gap-2 text-[#DC2626] bg-[#FEF2F2] border border-[#FEE2E2] px-4 py-3.5 rounded-xl text-xs font-semibold">
+                  <XCircle className="w-4.5 h-4.5" />
+                  <span>{reconcileError}</span>
+                </div>
+              )}
+
+              {/* Report Display */}
+              {reconciliationReport && (
+                <div className="border border-[#E5E7EB] rounded-[18px] p-6 flex flex-col gap-6 shadow-sm">
+                  {/* Summary Header */}
+                  <div className="flex justify-between items-center border-b border-[#ECEFF3] pb-4">
+                    <div className="flex flex-col gap-1 text-xs">
+                      <span className="font-bold text-[#6B7280] uppercase tracking-wider">Audit Results</span>
+                      <h3 className="text-lg font-bold text-[#111827]">Procurement Match Report</h3>
+                    </div>
+                    <span className={`px-3 py-1.5 rounded-full text-xs font-bold border inline-flex items-center gap-1.5 ${
+                      reconciliationReport.match_status === "MATCHED"
+                        ? "bg-[#F0FDF4] text-[#16A34A] border-[#DCFCE7]"
+                        : reconciliationReport.match_status === "DISCREPANCY"
+                        ? "bg-[#FEF2F2] text-[#DC2626] border-[#FEE2E2]"
+                        : "bg-[#FFFBEB] text-[#D97706] border-[#FEF3C7]"
+                    }`}>
+                      {reconciliationReport.match_status === "MATCHED" && <CheckCircle2 className="w-4 h-4" />}
+                      {reconciliationReport.match_status === "DISCREPANCY" && <XCircle className="w-4 h-4" />}
+                      {reconciliationReport.match_status}
+                    </span>
+                  </div>
+
+                  {/* Checklist Items */}
+                  <div className="flex flex-col gap-3 text-xs">
+                    <h4 className="font-bold tracking-wider text-[#6B7280] uppercase">Compliance Checklist</h4>
+                    {reconciliationReport.checks.map((chk: any, idx: number) => (
+                      <div key={idx} className="p-4 bg-[#F9FAFB] border border-[#ECEFF3] rounded-xl flex items-center justify-between gap-4">
+                        <div className="flex flex-col gap-1.5">
+                          <span className="font-bold text-[#111827]">{chk.check_name}</span>
+                          <span className="text-xs text-[#4B5563] font-medium leading-normal">{chk.details}</span>
+                        </div>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold inline-flex items-center gap-1 border ${
+                          chk.status === "PASSED"
+                            ? "bg-[#F0FDF4] text-[#16A34A] border-[#DCFCE7]"
+                            : "bg-[#FEF2F2] text-[#DC2626] border-[#FEE2E2]"
+                        }`}>
+                          {chk.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Delivery Note Connection */}
+                  {reconciliationReport.delivery_note_id && (
+                    <div className="p-4 border border-[#DCFCE7] bg-[#F0FDF4] rounded-xl flex items-center gap-3 text-xs text-[#15803D]">
+                      <CheckCircle2 className="w-5 h-5 shrink-0" />
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-bold">Delivery Document Resolved</span>
+                        <span className="font-medium text-[#166534]">Linked and cross-verified against Delivery Note ID: {reconciliationReport.delivery_note_id}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </main>

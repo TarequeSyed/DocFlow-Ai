@@ -41,6 +41,7 @@ erDiagram
         integer chunk_index
         text content
         vector embedding "384 dimensions (MiniLM-L6-v2)"
+        integer page_number
         timestamp created_at
     }
 
@@ -98,6 +99,7 @@ Stores text segments and corresponding text embeddings for vector search.
 | `chunk_index` | `INTEGER` | NOT NULL | Sequential index of chunk. |
 | `content` | `TEXT` | NOT NULL | Plain-text content of this chunk. |
 | `embedding` | `VECTOR(384)` | NOT NULL | `pgvector` embeddings field (384 dimensions). |
+| `page_number` | `INTEGER` | NULL | The 1-based page number where this chunk was extracted. |
 | `created_at` | `TIMESTAMP` | DEFAULT NOW() | Chunk generation timestamp. |
 
 *Note: The dimension size (384) corresponds to the Sentence-Transformers `all-MiniLM-L6-v2` model, which provides a highly optimized balance of search accuracy and processing performance.*

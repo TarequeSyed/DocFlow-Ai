@@ -1,3 +1,35 @@
 personal_docs
 .env
-__pycache__
+docker-compose.yml
+__pycache__/
+
+# Python Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python Cache & Configs
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Node.js & Next.js Caches
+node_modules/
+.next/
+out/
+build/
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database & Upload Directories
+backend/uploads/
+postgres_data/
+uploads_data/
